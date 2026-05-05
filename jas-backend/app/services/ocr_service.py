@@ -64,7 +64,7 @@ class OCRService:
             
         except Exception as e:
             logger.error(f"Error during OCR extraction for {file_path}: {str(e)}")
-            return "", False
+            return [], False  # ✅ FIXED: Return empty list, not empty string (consistent with success case)
     
     @staticmethod
     def _ocr_page(page, page_num: int) -> str:

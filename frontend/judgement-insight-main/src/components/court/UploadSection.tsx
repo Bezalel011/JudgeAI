@@ -147,6 +147,8 @@ export const UploadSection = ({ onProcessed }: Props) => {
         toast.success(`Successfully processed ${successCount} file(s).`);
       }
     } catch (e) {
+      // ✅ FIXED: Clear state on error to prevent corruption
+      setFiles([]);
       toast.error(e instanceof Error ? e.message : "Failed to upload files.");
     } finally {
       setLoading(false);

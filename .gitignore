@@ -1,0 +1,64 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# SQLite and local backups
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.bak
+*.bak_new
+*.bak.*
+
+# Backend runtime/generated artifacts
+jas-backend/data/documents/
+jas-backend/data/samples/
+jas-backend/.uv/
+
+# Frontend (Vite/Node/Bun)
+frontend/judgement-insight-main/node_modules/
+frontend/judgement-insight-main/dist/
+frontend/judgement-insight-main/.vite/
+frontend/judgement-insight-main/coverage/
+frontend/judgement-insight-main/.eslintcache
+
+# Optional package manager caches
+.pnpm-store/
+.npm/
+.yarn/
+
+# Build artifacts
+*.tsbuildinfo

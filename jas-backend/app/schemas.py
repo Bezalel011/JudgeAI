@@ -2,8 +2,8 @@
 Pydantic schemas for API request/response validation
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, computed_field
+from typing import Optional, List, Union
 from datetime import datetime
 from typing import Any
 
@@ -66,7 +66,7 @@ class ActionResponse(BaseModel):
     department: str = Field(..., description="Responsible department")
     deadline: Optional[str] = Field(None, description="ISO format deadline")
     priority: str = Field("Medium", description="High/Medium/Low")
-    confidence: float = Field(..., description="Confidence score 0.0-1.0")
+    confidence: Union[str, float] = Field(..., description="Confidence score as string or number between 0.0 and 1.0")
     evidence: Any = Field(..., description="Structured evidence: {text,page,sentence_index,char_start,char_end}")
     created_at: Optional[datetime] = None
     
@@ -84,11 +84,34 @@ class ActionDetailsResponse(BaseModel):
     status: str = "PENDING"
     department: Optional[str] = None
     priority: Optional[str] = "Medium"
-    confidence: Optional[str] = None
+    confidence: Optional[Union[str, float]] = None
     evidence: Optional[Any] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
+    class Config:
+        from_attributes = True
+
+
+# ✅ FIXED: Add ActionUpdateRequest for PUT /actions/{id} endpoint
+class ActionUpdateRequest(BaseModel):
+    """Request body for updating action details"""
+    task: Optional[str] = None
+    deadline: Optional[str] = None
+    department: Optional[str] = None
+    priority: Optional[str] = None
+
+
+class AlertResponse(BaseModel):
+    """Notification alert generated for a deadline."""
+    id: int
+    action_id: int
+    type: str
+    message: str
+    created_at: datetime
+    is_read: bool
+    action: Optional[ActionDetailsResponse] = None
+
     class Config:
         from_attributes = True
 
@@ -159,3 +182,20 @@ class DashboardStats(BaseModel):
     pending_actions: int
     approved_actions: int
     rejected_actions: int
+    overdue_actions: int = 0
+    
+    # ✅ FIXED: Add computed field aliases for frontend compatibility
+    @computed_field
+    @property
+    def pending(self) -> int:
+        return self.pending_actions
+    
+    @computed_field
+    @property
+    def approved(self) -> int:
+        return self.approved_actions
+    
+    @computed_field
+    @property
+    def rejected(self) -> int:
+        return self.rejected_actions

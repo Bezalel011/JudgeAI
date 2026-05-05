@@ -42,6 +42,8 @@ class Settings:
     # API
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
     MAX_FILES_PER_UPLOAD: int = int(os.getenv("MAX_FILES_PER_UPLOAD", "5"))
+    ALERT_CHECK_INTERVAL_MINUTES: int = int(os.getenv("ALERT_CHECK_INTERVAL_MINUTES", "60"))
+    ALERT_LOOKAHEAD_DAYS: int = int(os.getenv("ALERT_LOOKAHEAD_DAYS", "3"))
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

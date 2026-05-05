@@ -114,12 +114,33 @@ class PreprocessingService:
         """
         try:
             logger.info("Starting preprocessing pipeline")
+            
+            # ✅ FIXED: Add input validation to prevent type errors
+            if not isinstance(pages, list):
+                logger.error(f"Invalid pages parameter: expected list, got {type(pages).__name__}")
+                return []
+            
+            if not pages:
+                logger.warning("Empty pages list provided")
+                return []
 
             all_sentences: List[Dict[str, object]] = []
 
-            for page_obj in pages:
+            for idx_page, page_obj in enumerate(pages):
+                # Validate page object structure
+                if not isinstance(page_obj, dict):
+                    logger.warning(f"Skipping page {idx_page}: expected dict, got {type(page_obj).__name__}")
+                    continue
+                
                 page_num = page_obj.get("page")
-                page_text = page_obj.get("text", "") or ""
+                page_text = page_obj.get("text", "")
+                
+                # Ensure text is string
+                if not isinstance(page_text, str):
+                    logger.warning(f"Converting page {page_num} text to string (was {type(page_text).__name__})")
+                    page_text = str(page_text) if page_text is not None else ""
+                
+                page_text = page_text or ""
 
                 # Clean and normalize page text
                 page_text = PreprocessingService.clean_text(page_text)

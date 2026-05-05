@@ -78,8 +78,29 @@ class PipelineOrchestrator:
                     "actions": []
                 }
             
+            # ✅ FIXED: Delete old actions before reprocessing to prevent duplicates
+            db = SessionLocal()
+            try:
+                existing_actions = db.query(Action).filter(Action.document_id == document_id).all()
+                if existing_actions:
+                    logger.info(f"Found {len(existing_actions)} old actions for document: {document_id}. Deleting before reprocessing.")
+                    for action in existing_actions:
+                        db.delete(action)
+                    db.commit()
+                    logger.info(f"Deleted old actions for document: {document_id}")
+            finally:
+                db.close()
+            
+            # ✅ FIXED: Check status update return value
             # Update status to processing
-            ingestion_service.update_document_status(document_id, "processing")
+            if not ingestion_service.update_document_status(document_id, "processing"):
+                logger.error(f"Failed to update document status to processing: {document_id}")
+                return {
+                    "success": False,
+                    "document_id": document_id,
+                    "message": "Failed to update document status",
+                    "actions": []
+                }
             
             # Step 2: Run OCR (returns per-page text blocks)
             logger.info(f"Running OCR for document: {document_id}")
@@ -106,11 +127,15 @@ class PipelineOrchestrator:
             
             if not sentences:
                 logger.warning(f"No sentences extracted after preprocessing: {document_id}")
-                ingestion_service.update_document_status(
+                # ✅ FIXED: Check status update return value
+                if not ingestion_service.update_document_status(
                     document_id,
                     "processed",
                     extracted_text=full_text
-                )
+                ):
+                    logger.error(f"Failed to update document status to processed: {document_id}")
+                    # Still return success since extraction completed, just status update failed
+                
                 return {
                     "success": True,
                     "document_id": document_id,
@@ -134,11 +159,14 @@ class PipelineOrchestrator:
             logger.info(f"Found {len(actions)} actions")
             
             # Step 5: Store extracted text and update status
-            ingestion_service.update_document_status(
+            # ✅ FIXED: Check status update return value
+            if not ingestion_service.update_document_status(
                 document_id,
                 "processed",
                 extracted_text=full_text
-            )
+            ):
+                logger.error(f"Failed to update document status to processed: {document_id}")
+                # Still continue since actions were extracted successfully
             
             # Step 6: Save actions to database
             PipelineOrchestrator._save_actions(document_id, actions)

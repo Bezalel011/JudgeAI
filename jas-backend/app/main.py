@@ -2,21 +2,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, UploadFile, File, HTTPException, status, Query
 from typing import List
 import logging
+from sqlalchemy.orm import joinedload
 
 from app.config import settings
 from app.logger import setup_logger
 from app.services.ingestion import ingestion_service
 from app.services.pipeline import pipeline_orchestrator
+from app.services.alert_service import generate_alerts
+from app.services.scheduler import start_scheduler, shutdown_scheduler
 from app.db import (
     SessionLocal,
     Action,
     Document,
     Review,
     AuditLog,
+    Alert,
     create_review,
     ACTION_STATUS_PENDING,
     ACTION_STATUS_APPROVED,
     ACTION_STATUS_REJECTED,
+    ACTION_STATUS_OVERDUE,
+    ALERT_TYPE_OVERDUE,
+    ALERT_TYPE_UPCOMING,
     REVIEW_DECISION_APPROVED,
     REVIEW_DECISION_REJECTED,
 )
@@ -32,6 +39,8 @@ from app.schemas import (
     DocumentInfoResponse,
     DocumentWithActionsResponse,
     AuditLogResponse,
+    AlertResponse,
+    ActionUpdateRequest,  # ✅ FIXED: Add for PUT /actions/{id} endpoint
 )
 
 # Initialize logger
@@ -68,6 +77,19 @@ def home():
 def health():
     """Health check endpoint"""
     return {"status": "healthy"}
+
+
+@app.on_event("startup")
+def on_startup():
+    """Warm the scheduler and prime alerts once on startup."""
+    start_scheduler()
+    generate_alerts()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """Cleanly stop scheduler threads."""
+    shutdown_scheduler()
 
 
 # ============ Document Upload Routes ============
@@ -309,7 +331,7 @@ def get_all_actions(document_id: str = None, status_filter: str = None):
     
     Query parameters:
     - document_id: Filter by document
-    - status_filter: Filter by status (PENDING, APPROVED, REJECTED)
+    - status_filter: Filter by status (PENDING, APPROVED, REJECTED, OVERDUE)
     """
     db = SessionLocal()
     try:
@@ -433,6 +455,43 @@ def review_action_compat(
     return review_action(action_id, action_status, reviewer_name, comments)
 
 
+@app.put("/actions/{action_id}", response_model=ActionDetailsResponse)
+def update_action(
+    action_id: int,
+    update_data: ActionUpdateRequest,  # ✅ FIXED: Accept body instead of query params
+):
+    """Update action details (task, deadline, department, priority)."""
+    db = SessionLocal()
+    try:
+        action = db.query(Action).filter(Action.id == action_id).first()
+        if not action:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Action {action_id} not found")
+        
+        # Update fields if provided
+        if update_data.task is not None:
+            action.task = update_data.task
+        if update_data.deadline is not None:
+            action.deadline = update_data.deadline
+        if update_data.department is not None:
+            action.department = update_data.department
+        if update_data.priority is not None:
+            action.priority = update_data.priority
+        
+        action.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(action)
+        logger.info(f"Action {action_id} updated")
+        return ActionDetailsResponse.from_orm(action)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error updating action: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    finally:
+        db.close()
+
+
 @app.get("/actions/{action_id}/history", response_model=ActionHistoryResponse)
 def get_action_history(action_id: int):
     """Get action details with review and audit history."""
@@ -452,6 +511,59 @@ def get_action_history(action_id: int):
             action=ActionDetailsResponse.from_orm(action),
             reviews=[ReviewResponse.from_orm(r) for r in reviews],
             audits=[AuditLogResponse.from_orm(a) for a in audits],
+        )
+    finally:
+        db.close()
+
+
+# ============ Alerts Routes ============
+
+@app.get("/alerts", response_model=List[AlertResponse])
+def get_alerts(filter: str = Query("all", pattern="^(all|unread|overdue)$")):
+    """Return alerts with optional read/overdue filtering."""
+    db = SessionLocal()
+    try:
+        query = (
+            db.query(Alert)
+            .options(joinedload(Alert.action))
+            .order_by(Alert.is_read.asc(), Alert.created_at.desc())
+        )
+
+        if filter == "unread":
+            query = query.filter(Alert.is_read.is_(False))
+        elif filter == "overdue":
+            query = query.filter(Alert.type == ALERT_TYPE_OVERDUE)
+
+        alerts = query.all()
+        return [AlertResponse.from_orm(alert) for alert in alerts]
+    finally:
+        db.close()
+
+
+@app.post("/alerts/{alert_id}/read", response_model=AlertResponse)
+def mark_alert_read(alert_id: int):
+    """Mark a single alert as read."""
+    db = SessionLocal()
+    try:
+        alert = db.query(Alert).options(joinedload(Alert.action)).filter(Alert.id == alert_id).first()
+        if not alert:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Alert {alert_id} not found"
+            )
+
+        alert.is_read = True
+        db.commit()
+        db.refresh(alert)
+        return AlertResponse.from_orm(alert)
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking alert as read: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update alert: {str(e)}"
         )
     finally:
         db.close()
@@ -513,6 +625,9 @@ def dashboard():
         rejected_actions = db.query(Action).filter(
             Action.status == "REJECTED"
         ).count()
+        overdue_actions = db.query(Action).filter(
+            Action.status == ACTION_STATUS_OVERDUE
+        ).count()
         
         return DashboardStats(
             total_documents=total_documents,
@@ -522,7 +637,8 @@ def dashboard():
             total_actions=total_actions,
             pending_actions=pending_actions,
             approved_actions=approved_actions,
-            rejected_actions=rejected_actions
+            rejected_actions=rejected_actions,
+            overdue_actions=overdue_actions,
         )
         
     finally:

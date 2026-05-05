@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { CheckCircle2, Clock, ListChecks, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, ListChecks, XCircle } from "lucide-react";
 import type { DashboardSummary } from "@/lib/api";
 
 interface Props {
@@ -11,6 +11,7 @@ interface Props {
 const cards = [
   { key: "total_actions" as const, label: "Total Actions", icon: ListChecks, accent: "info" },
   { key: "pending" as const, label: "Pending", icon: Clock, accent: "warning" },
+  { key: "overdue_actions" as const, label: "Overdue", icon: AlertTriangle, accent: "destructive" },
   { key: "approved" as const, label: "Approved", icon: CheckCircle2, accent: "success" },
   { key: "rejected" as const, label: "Rejected", icon: XCircle, accent: "destructive" },
 ];
@@ -24,7 +25,7 @@ const accentMap: Record<string, { bar: string; iconBg: string; iconText: string 
 
 export const DashboardCards = ({ summary, loading }: Props) => {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
       {cards.map(({ key, label, icon: Icon, accent }) => {
         const styles = accentMap[accent];
         return (
