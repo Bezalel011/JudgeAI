@@ -1,3 +1,9 @@
+"""
+DEPRECATED: Old rule-based action detection system
+This module has been replaced by the NLP-based Action Engine (app/services/action_engine.py)
+Kept for reference only. Do not use in production.
+"""
+
 import re
 from datetime import datetime, timedelta
 
@@ -11,6 +17,10 @@ def compute_deadline(days):
     return (datetime.today() + timedelta(days=days)).date().isoformat()
 
 def detect_actions(sentences):
+    """
+    DEPRECATED: Old rule-based action detection.
+    Use ActionEngine.generate_actions() instead.
+    """
     actions = []
 
     for s in sentences:

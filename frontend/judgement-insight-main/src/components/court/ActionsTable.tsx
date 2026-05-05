@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -38,8 +38,8 @@ import {
 } from "@/components/ui/pagination";
 import { Check, X, Search, AlertTriangle, Loader2, Eye } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
-import type { Action } from "@/lib/api";
-import { reviewAction } from "@/services/services";
+import type { Action, ActionHistory } from "@/lib/api";
+import { getActionHistory, reviewAction } from "@/services/services";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +68,8 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<string | null>(null);
   const [openTask, setOpenTask] = useState<Action | null>(null);
+  const [history, setHistory] = useState<ActionHistory | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -103,6 +105,30 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       setBusy(null);
     }
   };
+
+  useEffect(() => {
+    let alive = true;
+    const loadHistory = async () => {
+      if (!openTask?.id) {
+        setHistory(null);
+        return;
+      }
+      setHistoryLoading(true);
+      try {
+        const data = await getActionHistory(openTask.id);
+        if (alive) setHistory(data);
+      } catch {
+        if (alive) setHistory(null);
+      } finally {
+        if (alive) setHistoryLoading(false);
+      }
+    };
+
+    loadHistory();
+    return () => {
+      alive = false;
+    };
+  }, [openTask?.id]);
 
   return (
     <Card className="overflow-hidden border-border/60 shadow-[var(--shadow-card)]">
@@ -147,6 +173,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
               <TableHead className="w-16">ID</TableHead>
               <TableHead className="w-36">Type</TableHead>
               <TableHead>Task</TableHead>
+              <TableHead className="w-24">Evidence</TableHead>
               <TableHead className="w-40">Deadline</TableHead>
               <TableHead className="w-32">Status</TableHead>
               <TableHead className="w-44 text-right">Actions</TableHead>
@@ -196,6 +223,11 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                           <p className="text-xs">{task || "No task description"}</p>
                         </TooltipContent>
                       </Tooltip>
+                    </TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="ghost" onClick={() => setOpenTask(a)}>
+                        View Evidence
+                      </Button>
                     </TableCell>
                     <TableCell>
                       <div className={cn("flex items-center gap-1.5 text-sm", urgent && "font-semibold text-destructive")}>
@@ -281,7 +313,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       )}
 
       <Dialog open={!!openTask} onOpenChange={(o) => !o && setOpenTask(null)}>
-        <DialogContent className="max-w-2xl">
+          <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Action #{openTask?.id} — {openTask?.type ?? "—"}</DialogTitle>
           </DialogHeader>
@@ -289,6 +321,35 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Task</p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{openTask?.task ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Evidence</p>
+              <div className="mt-1 text-sm">
+                {openTask?.evidence ? (
+                  (() => {
+                    const ev = openTask.evidence as any;
+                    const text = (ev?.text ?? "") as string;
+                    const start = Number(ev?.char_start ?? -1);
+                    const end = Number(ev?.char_end ?? -1);
+                    if (start >= 0 && end > start) {
+                      const before = text.slice(0, start);
+                      const middle = text.slice(start, end);
+                      const after = text.slice(end);
+                      return (
+                        <p className="whitespace-pre-wrap text-sm">
+                          {before}
+                          <span className="bg-yellow-200 text-yellow-900">{middle}</span>
+                          {after}
+                        </p>
+                      );
+                    }
+                    return <p className="whitespace-pre-wrap text-sm">{text}</p>;
+                  })()
+                ) : (
+                  <p className="text-sm text-muted-foreground">No evidence available</p>
+                )}
+                <p className="text-xs text-muted-foreground mt-2">Page: {String(openTask?.evidence?.page ?? "—")}, Sentence: {String(openTask?.evidence?.sentence_index ?? "—")}</p>
+              </div>
             </div>
             <div className="flex items-center gap-6">
               <div>
@@ -299,6 +360,31 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
                 <div className="mt-1"><StatusBadge status={openTask?.status} /></div>
               </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 text-xs text-muted-foreground sm:grid-cols-2">
+              <p>Created: {String((openTask as any)?.created_at ?? "—")}</p>
+              <p>Updated: {String((openTask as any)?.updated_at ?? "—")}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Review History</p>
+              {historyLoading ? (
+                <p className="mt-2 text-sm text-muted-foreground">Loading review history...</p>
+              ) : history?.reviews?.length ? (
+                <div className="mt-2 space-y-2">
+                  {history.reviews.map((r) => (
+                    <div key={r.id} className="rounded-md border border-border/60 p-2 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{r.reviewer_name}</span>
+                        <span className="text-xs text-muted-foreground">{r.timestamp}</span>
+                      </div>
+                      <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">{r.decision}</p>
+                      {r.comments ? <p className="mt-1 text-sm">{r.comments}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">No review records yet.</p>
+              )}
             </div>
           </div>
         </DialogContent>
