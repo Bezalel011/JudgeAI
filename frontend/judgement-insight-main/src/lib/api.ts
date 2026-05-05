@@ -6,7 +6,39 @@ export interface Action {
   task?: string;
   deadline?: string;
   status?: string;
+  evidence?: {
+    text?: string;
+    page?: number | string | null;
+    sentence_index?: number | null;
+    char_start?: number | null;
+    char_end?: number | null;
+  } | null;
   [key: string]: unknown;
+}
+
+export interface ReviewEntry {
+  id: number;
+  action_id: number;
+  reviewer_name: string;
+  decision: string;
+  comments?: string | null;
+  timestamp: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  entity_type: string;
+  entity_id: string;
+  action: string;
+  performed_by: string;
+  timestamp: string;
+  details?: Record<string, unknown> | null;
+}
+
+export interface ActionHistory {
+  action: Action;
+  reviews: ReviewEntry[];
+  audits: AuditEntry[];
 }
 
 export interface DashboardSummary {
@@ -14,6 +46,9 @@ export interface DashboardSummary {
   pending: number;
   approved: number;
   rejected: number;
+  pending_actions?: number;
+  approved_actions?: number;
+  rejected_actions?: number;
 }
 
 async function handle<T>(res: Response): Promise<T> {
