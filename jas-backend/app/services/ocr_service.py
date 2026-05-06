@@ -44,7 +44,7 @@ class OCRService:
                     if page_text and page_text.strip():
                         logger.debug(f"Extracted text from page {page_num}")
                         pages.append({"page": page_num, "text": page_text})
-                    else:
+                    elif settings.OCR_ENABLE_FALLBACK:
                         # Fallback to OCR for scanned pages
                         logger.debug(f"No text found on page {page_num}, attempting OCR")
                         try:
@@ -53,6 +53,9 @@ class OCRService:
                         except Exception as e:
                             logger.warning(f"OCR failed on page {page_num}: {str(e)}")
                             pages.append({"page": page_num, "text": ""})
+                    else:
+                        logger.debug(f"OCR fallback disabled for page {page_num}")
+                        pages.append({"page": page_num, "text": ""})
             
             if not any(p.get("text") for p in pages):
                 logger.warning(f"No text extracted from {file_path}")
@@ -80,7 +83,17 @@ class OCRService:
         """
         try:
             image = page.to_image().original
-            ocr_text = pytesseract.image_to_string(image)
+            
+            # Build Tesseract config with PSM and language settings
+            config = f"--psm {settings.OCR_PSM}"
+            if settings.OCR_LANGUAGES:
+                config += f" -l {settings.OCR_LANGUAGES}"
+            
+            ocr_text = pytesseract.image_to_string(
+                image,
+                config=config,
+                timeout=settings.OCR_TIMEOUT
+            )
             return ocr_text
         except Exception as e:
             logger.error(f"OCR failed for page {page_num}: {str(e)}")

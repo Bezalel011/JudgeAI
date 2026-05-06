@@ -32,6 +32,10 @@ class Settings:
         "TESSERACT_CMD",
         r"C:\Program Files\Tesseract-OCR\tesseract.exe"
     )
+    OCR_LANGUAGES: str = os.getenv("OCR_LANGUAGES", "eng")
+    OCR_PSM: int = int(os.getenv("OCR_PSM", "3"))
+    OCR_ENABLE_FALLBACK: bool = os.getenv("OCR_ENABLE_FALLBACK", "True").lower() == "true"
+    OCR_TIMEOUT: int = int(os.getenv("OCR_TIMEOUT", "30"))
     
     # File storage
     DOCUMENTS_DIR: str = os.getenv(
