@@ -8,6 +8,8 @@ from sqlalchemy import (
     ForeignKey,
     JSON,
     event,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 from datetime import datetime
@@ -77,6 +79,7 @@ class Action(Base):
     priority = Column(String, nullable=True)
     status = Column(String, default="PENDING", index=True)  # PENDING / APPROVED / REJECTED
     confidence = Column(String, nullable=True)
+    confidence_components = Column(JSON, nullable=True)
     # Evidence stored as structured fields for explainability
     evidence_text = Column(Text, nullable=True)
     evidence_page = Column(String, nullable=True)
@@ -100,6 +103,40 @@ class Action(Base):
             "char_start": self.evidence_start,
             "char_end": self.evidence_end,
         }
+
+    @property
+    def confidence_score(self):
+        try:
+            return float(self.confidence) if self.confidence is not None else None
+        except (TypeError, ValueError):
+            return None
+
+
+class ActionRevision(Base):
+    """Audit-friendly snapshot of edits made to an action."""
+    __tablename__ = "action_revisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action_id = Column(Integer, ForeignKey("actions.id", ondelete="CASCADE"), nullable=False, index=True)
+    reviewer_name = Column(String, nullable=False)
+    before_json = Column(JSON, nullable=False)
+    after_json = Column(JSON, nullable=False)
+    comments = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class Notification(Base):
+    """Deadline reminder / alert record."""
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action_id = Column(Integer, ForeignKey("actions.id", ondelete="CASCADE"), nullable=False, index=True)
+    due_at = Column(DateTime, nullable=False, index=True)
+    sent_at = Column(DateTime, nullable=True, index=True)
+    channel = Column(String, nullable=False, default="in_app", index=True)
+    status = Column(String, nullable=False, default="PENDING", index=True)
+    payload = Column(JSON, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class Review(Base):
@@ -255,3 +292,19 @@ def create_review(
 
 # Create all tables
 Base.metadata.create_all(bind=engine)
+
+
+def _ensure_sqlite_schema():
+    """Add lightweight schema fixes for older SQLite databases."""
+    if "sqlite" not in DATABASE_URL:
+        return
+
+    inspector = inspect(engine)
+    existing_columns = {column["name"] for column in inspector.get_columns("actions")}
+
+    if "confidence_components" not in existing_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE actions ADD COLUMN confidence_components JSON"))
+
+
+_ensure_sqlite_schema()

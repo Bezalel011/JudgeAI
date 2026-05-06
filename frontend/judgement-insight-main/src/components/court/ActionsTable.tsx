@@ -36,8 +36,10 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Check, X, Search, AlertTriangle, Loader2, Eye } from "lucide-react";
+import { Check, X, Search, AlertTriangle, Loader2, Eye, PencilLine } from "lucide-react";
 import { StatusBadge } from "./StatusBadge";
+import { ActionEditDialog } from "./ActionEditDialog";
+import { AuditTimeline } from "./AuditTimeline";
 import type { Action, ActionHistory } from "@/lib/api";
 import { getActionHistory, reviewAction } from "@/services/services";
 import { toast } from "sonner";
@@ -54,7 +56,7 @@ const PAGE_SIZE = 8;
 const isUrgent = (deadline?: string) => {
   if (!deadline) return false;
   const d = new Date(deadline);
-  if (isNaN(d.getTime())) return false;
+  if (Number.isNaN(d.getTime())) return false;
   const diff = (d.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
   return diff <= 7 && diff >= -1;
 };
@@ -68,6 +70,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
   const [page, setPage] = useState(1);
   const [busy, setBusy] = useState<string | null>(null);
   const [openTask, setOpenTask] = useState<Action | null>(null);
+  const [editTask, setEditTask] = useState<Action | null>(null);
   const [history, setHistory] = useState<ActionHistory | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
@@ -77,7 +80,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       const status = (a.status ?? "PENDING").toUpperCase();
       if (statusFilter !== "ALL" && status !== statusFilter) return false;
       if (!q) return true;
-      const haystack = [a.task, a.type, a.deadline, String(a.id)]
+      const haystack = [a.task, a.type, a.deadline, a.department, a.priority, String(a.id)]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -87,10 +90,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageItems = filtered.slice(
-    (currentPage - 1) * PAGE_SIZE,
-    currentPage * PAGE_SIZE
-  );
+  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
   const handleReview = async (id: Action["id"], status: "APPROVED" | "REJECTED") => {
     const key = `${id}-${status}`;
@@ -99,8 +99,8 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       await reviewAction(id, status);
       toast.success(`Action #${id} ${status.toLowerCase()}.`);
       onChanged();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to update action.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update action.");
     } finally {
       setBusy(null);
     }
@@ -108,11 +108,13 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
 
   useEffect(() => {
     let alive = true;
+
     const loadHistory = async () => {
       if (!openTask?.id) {
         setHistory(null);
         return;
       }
+
       setHistoryLoading(true);
       try {
         const data = await getActionHistory(openTask.id);
@@ -135,9 +137,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       <div className="flex flex-col gap-3 border-b border-border/60 bg-muted/30 px-6 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-base font-semibold text-foreground">Extracted Actions</h2>
-          <p className="text-sm text-muted-foreground">
-            Review and verify actions extracted from judgments.
-          </p>
+          <p className="text-sm text-muted-foreground">Review and verify actions extracted from judgments.</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative">
@@ -145,13 +145,19 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
             <Input
               placeholder="Search actions…"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
               className="w-full pl-8 sm:w-64"
             />
           </div>
           <Select
             value={statusFilter}
-            onValueChange={(v) => { setStatusFilter(v); setPage(1); }}
+            onValueChange={(v) => {
+              setStatusFilter(v);
+              setPage(1);
+            }}
           >
             <SelectTrigger className="w-full sm:w-40">
               <SelectValue placeholder="Status" />
@@ -173,6 +179,9 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
               <TableHead className="w-16">ID</TableHead>
               <TableHead className="w-36">Type</TableHead>
               <TableHead>Task</TableHead>
+              <TableHead className="w-44">Department</TableHead>
+              <TableHead className="w-24">Priority</TableHead>
+              <TableHead className="w-24">Confidence</TableHead>
               <TableHead className="w-24">Evidence</TableHead>
               <TableHead className="w-40">Deadline</TableHead>
               <TableHead className="w-32">Status</TableHead>
@@ -182,14 +191,14 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
                   <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" />
                   Loading actions…
                 </TableCell>
               </TableRow>
             ) : pageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-12 text-center text-muted-foreground">
+                <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
                   No actions found. Upload a judgment to get started.
                 </TableCell>
               </TableRow>
@@ -198,11 +207,11 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                 const task = a.task ?? "";
                 const urgent = isUrgent(a.deadline);
                 const status = (a.status ?? "PENDING").toUpperCase();
+                const confidenceValue = Number(a.confidence ?? 0);
+
                 return (
                   <TableRow key={String(a.id)} className="align-top">
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      #{a.id}
-                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">#{a.id}</TableCell>
                     <TableCell>
                       <span className="inline-flex rounded-md bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
                         {a.type ?? "—"}
@@ -224,6 +233,15 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                         </TooltipContent>
                       </Tooltip>
                     </TableCell>
+                    <TableCell className="text-sm text-foreground">{a.department ?? "—"}</TableCell>
+                    <TableCell>
+                      <span className="inline-flex rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                        {a.priority ?? "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-foreground">
+                      {Number.isFinite(confidenceValue) && confidenceValue > 0 ? confidenceValue.toFixed(2) : "—"}
+                    </TableCell>
                     <TableCell>
                       <Button size="sm" variant="ghost" onClick={() => setOpenTask(a)}>
                         View Evidence
@@ -235,9 +253,20 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                         {a.deadline ?? "—"}
                       </div>
                     </TableCell>
-                    <TableCell><StatusBadge status={status} /></TableCell>
+                    <TableCell>
+                      <StatusBadge status={status} />
+                    </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy !== null}
+                          onClick={() => setEditTask(a)}
+                          className="border-border/60"
+                        >
+                          <PencilLine className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -245,11 +274,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                           onClick={() => handleReview(a.id, "APPROVED")}
                           className="border-success/30 bg-success-soft text-success hover:bg-success hover:text-success-foreground"
                         >
-                          {busy === `${a.id}-APPROVED` ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Check className="h-3.5 w-3.5" />
-                          )}
+                          {busy === `${a.id}-APPROVED` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                         </Button>
                         <Button
                           size="sm"
@@ -258,11 +283,7 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                           onClick={() => handleReview(a.id, "REJECTED")}
                           className="border-destructive/30 bg-danger-soft text-destructive hover:bg-destructive hover:text-destructive-foreground"
                         >
-                          {busy === `${a.id}-REJECTED` ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <X className="h-3.5 w-3.5" />
-                          )}
+                          {busy === `${a.id}-REJECTED` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
                         </Button>
                       </div>
                     </TableCell>
@@ -277,15 +298,17 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       {filtered.length > PAGE_SIZE && (
         <div className="flex items-center justify-between border-t border-border/60 bg-muted/20 px-6 py-3">
           <p className="text-xs text-muted-foreground">
-            Showing {(currentPage - 1) * PAGE_SIZE + 1}–
-            {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
+            Showing {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
           </p>
           <Pagination className="mx-0 w-auto justify-end">
             <PaginationContent>
               <PaginationItem>
                 <PaginationPrevious
                   href="#"
-                  onClick={(e) => { e.preventDefault(); setPage(Math.max(1, currentPage - 1)); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPage(Math.max(1, currentPage - 1));
+                  }}
                   className={currentPage === 1 ? "pointer-events-none opacity-50" : ""}
                 />
               </PaginationItem>
@@ -294,7 +317,10 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                   <PaginationLink
                     href="#"
                     isActive={p === currentPage}
-                    onClick={(e) => { e.preventDefault(); setPage(p); }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setPage(p);
+                    }}
                   >
                     {p}
                   </PaginationLink>
@@ -303,7 +329,10 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
               <PaginationItem>
                 <PaginationNext
                   href="#"
-                  onClick={(e) => { e.preventDefault(); setPage(Math.min(totalPages, currentPage + 1)); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPage(Math.min(totalPages, currentPage + 1));
+                  }}
                   className={currentPage === totalPages ? "pointer-events-none opacity-50" : ""}
                 />
               </PaginationItem>
@@ -313,9 +342,11 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       )}
 
       <Dialog open={!!openTask} onOpenChange={(o) => !o && setOpenTask(null)}>
-          <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Action #{openTask?.id} — {openTask?.type ?? "—"}</DialogTitle>
+            <DialogTitle>
+              Action #{openTask?.id} — {openTask?.type ?? "—"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -348,7 +379,9 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                 ) : (
                   <p className="text-sm text-muted-foreground">No evidence available</p>
                 )}
-                <p className="text-xs text-muted-foreground mt-2">Page: {String(openTask?.evidence?.page ?? "—")}, Sentence: {String(openTask?.evidence?.sentence_index ?? "—")}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Page: {String(openTask?.evidence?.page ?? "—")}, Sentence: {String(openTask?.evidence?.sentence_index ?? "—")}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-6">
@@ -358,7 +391,9 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</p>
-                <div className="mt-1"><StatusBadge status={openTask?.status} /></div>
+                <div className="mt-1">
+                  <StatusBadge status={openTask?.status} />
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-1 gap-3 text-xs text-muted-foreground sm:grid-cols-2">
@@ -386,9 +421,20 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
                 <p className="mt-2 text-sm text-muted-foreground">No review records yet.</p>
               )}
             </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Audit Trail</p>
+              <AuditTimeline audits={history?.audits ?? []} />
+            </div>
           </div>
         </DialogContent>
       </Dialog>
+
+      <ActionEditDialog
+        action={editTask}
+        open={!!editTask}
+        onOpenChange={(open) => !open && setEditTask(null)}
+        onSaved={onChanged}
+      />
     </Card>
   );
 };

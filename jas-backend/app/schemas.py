@@ -3,9 +3,16 @@ Pydantic schemas for API request/response validation
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Any, Literal
 from datetime import datetime
-from typing import Any
+
+
+class ConfidenceBreakdown(BaseModel):
+    overall: float = Field(..., ge=0.0, le=1.0)
+    directive_score: float = Field(..., ge=0.0, le=1.0)
+    entity_score: float = Field(..., ge=0.0, le=1.0)
+    deadline_score: float = Field(..., ge=0.0, le=1.0)
+    notes: Optional[str] = None
 
 
 # ============ Document Schemas ============
@@ -67,6 +74,7 @@ class ActionResponse(BaseModel):
     deadline: Optional[str] = Field(None, description="ISO format deadline")
     priority: str = Field("Medium", description="High/Medium/Low")
     confidence: float = Field(..., description="Confidence score 0.0-1.0")
+    confidence_components: Optional[ConfidenceBreakdown] = None
     evidence: Any = Field(..., description="Structured evidence: {text,page,sentence_index,char_start,char_end}")
     created_at: Optional[datetime] = None
     
@@ -85,6 +93,8 @@ class ActionDetailsResponse(BaseModel):
     department: Optional[str] = None
     priority: Optional[str] = "Medium"
     confidence: Optional[str] = None
+    confidence_score: Optional[float] = None
+    confidence_components: Optional[ConfidenceBreakdown] = None
     evidence: Optional[Any] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
@@ -116,6 +126,15 @@ class ReviewResponse(BaseModel):
         from_attributes = True
 
 
+class ActionEditRequest(BaseModel):
+    task: Optional[str] = None
+    department: Optional[str] = None
+    deadline: Optional[str] = None
+    priority: Optional[str] = None
+    reviewer_name: str = "human_reviewer"
+    comments: Optional[str] = None
+
+
 class AuditLogResponse(BaseModel):
     """Audit log entry details"""
     id: int
@@ -125,6 +144,20 @@ class AuditLogResponse(BaseModel):
     performed_by: str
     timestamp: datetime
     details: Optional[dict] = None
+
+    class Config:
+        from_attributes = True
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    action_id: int
+    due_at: datetime
+    sent_at: Optional[datetime] = None
+    channel: str
+    status: str
+    payload: Optional[dict] = None
+    timestamp: datetime
 
     class Config:
         from_attributes = True
@@ -159,3 +192,9 @@ class DashboardStats(BaseModel):
     pending_actions: int
     approved_actions: int
     rejected_actions: int
+
+
+class AlertsResponse(BaseModel):
+    due_actions: List[ActionDetailsResponse] = []
+    notifications: List[NotificationResponse] = []
+    window_hours: int = 72

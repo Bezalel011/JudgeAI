@@ -6,6 +6,16 @@ export interface Action {
   task?: string;
   deadline?: string;
   status?: string;
+  department?: string;
+  priority?: string;
+  confidence?: string | number;
+  confidence_components?: {
+    overall?: number;
+    directive_score?: number;
+    entity_score?: number;
+    deadline_score?: number;
+    notes?: string;
+  } | null;
   evidence?: {
     text?: string;
     page?: number | string | null;
@@ -33,6 +43,23 @@ export interface AuditEntry {
   performed_by: string;
   timestamp: string;
   details?: Record<string, unknown> | null;
+}
+
+export interface NotificationItem {
+  id: number;
+  action_id: number;
+  due_at: string;
+  sent_at?: string | null;
+  channel: string;
+  status: string;
+  payload?: Record<string, unknown> | null;
+  timestamp: string;
+}
+
+export interface AlertsResponse {
+  due_actions: Action[];
+  notifications: NotificationItem[];
+  window_hours: number;
 }
 
 export interface ActionHistory {
@@ -63,8 +90,10 @@ export const api = {
   async processPdf(file: File): Promise<{ actions?: Action[] } & Record<string, unknown>> {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch(`${API_BASE}/process`, { method: "POST", body: fd });
-    return handle(res);
+    const uploadRes = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd });
+    const uploaded = await handle<{ document_id: string } & Record<string, unknown>>(uploadRes);
+    const processRes = await fetch(`${API_BASE}/process/${uploaded.document_id}`, { method: "POST" });
+    return handle(processRes);
   },
   async getActions(): Promise<Action[]> {
     const res = await fetch(`${API_BASE}/actions`);

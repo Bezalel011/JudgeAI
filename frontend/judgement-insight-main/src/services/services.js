@@ -39,8 +39,28 @@ export async function reviewAction(id, status) {
   return res.data;
 }
 
+export async function updateAction(id, payload) {
+  const res = await axios.patch(`/actions/${id}`, payload);
+  return res.data;
+}
+
 export async function getActionHistory(id) {
   const res = await axios.get(`/actions/${id}/history`);
+  return res.data;
+}
+
+export async function getAlerts(windowHours = 72) {
+  const res = await axios.get(`/alerts?window_hours=${windowHours}`);
+  return res.data;
+}
+
+export async function acknowledgeAlert(notificationId) {
+  const res = await axios.post(`/alerts/${notificationId}/ack`);
+  return res.data;
+}
+
+export async function snoozeAlert(notificationId, minutes = 60) {
+  const res = await axios.post(`/alerts/${notificationId}/snooze?snooze_minutes=${minutes}`);
   return res.data;
 }
 

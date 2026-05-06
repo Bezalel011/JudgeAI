@@ -199,6 +199,7 @@ class PipelineOrchestrator:
                     deadline=action_data.get("deadline"),
                     priority=action_data.get("priority"),
                     confidence=str(action_data.get("confidence", 0.0)),
+                    confidence_components=action_data.get("confidence_components"),
                     evidence_text=ev_text,
                     evidence_page=ev.get("page") if isinstance(ev, dict) else None,
                     evidence_index=ev.get("sentence_index") if isinstance(ev, dict) else None,

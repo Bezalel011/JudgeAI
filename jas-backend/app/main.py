@@ -2,11 +2,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, UploadFile, File, HTTPException, status, Query
 from typing import List
 import logging
+from datetime import datetime, timedelta
 
 from app.config import settings
 from app.logger import setup_logger
 from app.services.ingestion import ingestion_service
 from app.services.pipeline import pipeline_orchestrator
+from app.services.notification_service import notification_service
+from app.services.review_editor import review_editor
 from app.db import (
     SessionLocal,
     Action,
@@ -19,6 +22,7 @@ from app.db import (
     ACTION_STATUS_REJECTED,
     REVIEW_DECISION_APPROVED,
     REVIEW_DECISION_REJECTED,
+    Notification,
 )
 from app.schemas import (
     DocumentUploadResponse,
@@ -32,6 +36,9 @@ from app.schemas import (
     DocumentInfoResponse,
     DocumentWithActionsResponse,
     AuditLogResponse,
+    ActionEditRequest,
+    NotificationResponse,
+    AlertsResponse,
 )
 
 # Initialize logger
@@ -433,6 +440,42 @@ def review_action_compat(
     return review_action(action_id, action_status, reviewer_name, comments)
 
 
+@app.patch("/actions/{action_id}")
+def edit_action(
+    action_id: int,
+    payload: ActionEditRequest,
+):
+    """Apply a human edit to an action and preserve the original AI output."""
+    try:
+        result = review_editor.apply_action_edit(
+            action_id=action_id,
+            patch=payload.model_dump(exclude_none=True),
+            reviewer=payload.reviewer_name,
+            comments=payload.comments,
+        )
+        return {
+            "success": True,
+            "message": f"Action {action_id} updated",
+            "action": ActionDetailsResponse.from_orm(result["action"]).model_dump(),
+            "revision": {
+                "id": result["revision"].id,
+                "action_id": result["revision"].action_id,
+                "reviewer_name": result["revision"].reviewer_name,
+                "comments": result["revision"].comments,
+                "timestamp": result["revision"].timestamp,
+            },
+            "review": ReviewResponse.from_orm(result["review"]).model_dump(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error editing action: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Edit failed: {str(e)}",
+        )
+
+
 @app.get("/actions/{action_id}/history", response_model=ActionHistoryResponse)
 def get_action_history(action_id: int):
     """Get action details with review and audit history."""
@@ -455,6 +498,65 @@ def get_action_history(action_id: int):
         )
     finally:
         db.close()
+
+
+@app.get("/alerts", response_model=AlertsResponse)
+def get_alerts(window_hours: int = 72):
+    """Return due actions and stored notifications within a time window."""
+    db = SessionLocal()
+    try:
+        due_actions = notification_service.list_due_actions(window_hours=window_hours)
+        cutoff = datetime.utcnow() + timedelta(hours=window_hours)
+        notifications = db.query(Notification).filter(
+            Notification.due_at <= cutoff,
+            Notification.status != "ACKNOWLEDGED",
+        ).order_by(Notification.due_at.asc()).all()
+
+        return AlertsResponse(
+            due_actions=due_actions,
+            notifications=[NotificationResponse.from_orm(n) for n in notifications],
+            window_hours=window_hours,
+        )
+    finally:
+        db.close()
+
+
+@app.post("/alerts/{notification_id}/ack")
+def acknowledge_alert(notification_id: int):
+    """Acknowledge an alert so it no longer appears in the active queue."""
+    try:
+        notification = notification_service.acknowledge_notification(notification_id)
+        return {"success": True, "notification": NotificationResponse.from_orm(notification).model_dump()}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error acknowledging alert: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.post("/alerts/{notification_id}/snooze")
+def snooze_alert(notification_id: int, snooze_minutes: int = Query(60, ge=5, le=1440)):
+    """Snooze an alert by pushing its due time forward."""
+    try:
+        notification = notification_service.snooze_notification(notification_id, snooze_minutes=snooze_minutes)
+        return {"success": True, "notification": NotificationResponse.from_orm(notification).model_dump()}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error snoozing alert: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.post("/alerts/run", response_model=AlertsResponse)
+def run_alerts(window_hours: int = 72, channel: str = Query("in_app")):
+    """Create and dispatch reminder notifications for due actions."""
+    created = notification_service.create_reminder_events(window_hours=window_hours, channel=channel)
+    dispatched = notification_service.dispatch_notifications(channel=channel)
+    return AlertsResponse(
+        due_actions=notification_service.list_due_actions(window_hours=window_hours),
+        notifications=[NotificationResponse.from_orm(n) for n in dispatched or created],
+        window_hours=window_hours,
+    )
 
 
 @app.get("/documents/{document_id}/details", response_model=DocumentWithActionsResponse)
