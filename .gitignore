@@ -1,6 +1,26 @@
+# Python
 venv/
-node_modules/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# Database
+*.db
+
+# Env
 .env
-temp_*.pdf
+
+# Node
+node_modules/
+
+# Vite
+dist/
+.vite/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
