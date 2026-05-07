@@ -342,13 +342,13 @@ export const ActionsTable = ({ actions, loading, onChanged }: Props) => {
       )}
 
       <Dialog open={!!openTask} onOpenChange={(o) => !o && setOpenTask(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              Action #{openTask?.id} — {openTask?.type ?? "—"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
+        <DialogContent className="w-full max-w-4xl sm:max-w-5xl max-h-[90vh] overflow-hidden">
+            <DialogHeader className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm py-2">
+              <DialogTitle>
+                Action #{openTask?.id} — {openTask?.type ?? "—"}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 overflow-y-auto px-0 py-2">
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Task</p>
               <p className="mt-1 whitespace-pre-wrap text-sm text-foreground">{openTask?.task ?? "—"}</p>
